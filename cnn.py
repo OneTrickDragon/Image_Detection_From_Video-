@@ -59,3 +59,48 @@ class EmotionHead(nn.Module):
         return self.head(x)
     
 
+class EmotionNet(nn.Module):
+    def __init__(self, pretrained=True, freeze_bn=False, dropout = 0.4):
+        super().__init__()
+        self.backbone = timm.create_model(
+            "efficientnet_b2", pretrained=pretrained, nums_classes = 0, global_pool = ""
+        )
+        feat_dim = self.backbone.num_features #1408
+        self.attention = ChannelAttenion(feat_dim)
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.flatten = nn.Flatten()
+        self.classifier = EmotionHead(feat_dim, NUM_EMOTIONS, dropout)
+        if freeze_bn: self._freeze_bn()
+
+    
+    def _freeze_bn(self):
+        for m in self.backbone.modules():
+            if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
+                m.eval()
+                for p in m.parameters(): p.requires_grad = False
+
+    def freeze_backbone(self):
+        for p in self.backbone.parameters(): p.requires_grad = False
+
+    def unfreeze_backbone(self, layers_from_end = 3):
+        for p in self.backbone.parameters(): p.requires_grad = True
+        for block in list(self.backbone.children())[-layers_from_end]:
+            for p in self.backbone.parameters(): p.requires_grad = False
+
+    def forward(self, x):
+        feats = self.backbone.forward_features(x)
+        feats = self.attention(feats)
+        feats = self.flatten(self.pool(feats))
+
+        return self.classifier(feats)
+    
+    @torch.no_grad()
+    def predict(self, x):
+        self.eval()
+        probs = F.softmax(self(x), dim=-1)[0]
+        idx = probs.argmax().item()
+        return {
+            "label": EMOTIONS[idx],
+            "confidence": probs[idx].item(),
+            "probabilities": {e: probs[i].item() for i,e in enumerate(EMOTIONS)}
+        }
