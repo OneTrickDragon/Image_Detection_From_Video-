@@ -104,3 +104,22 @@ class EmotionNet(nn.Module):
             "confidence": probs[idx].item(),
             "probabilities": {e: probs[i].item() for i,e in enumerate(EMOTIONS)}
         }
+    
+class LabelSmoothingCrossEntropy(nn.Module):
+    def __init__(self, smoothing=0.1):
+        super().__init__()
+        self.smoothing = smoothing
+
+    def forward(self, logits, targets):
+        n = logits.size(-1)
+        log_probs = F.softmax(logits, dim = 1)
+        nll = -log_probs.gather(dim=-1, index=targets.unsqueeze(1)).squeeze(1)
+        smooth_loss = -log_probs.mean(dim=-1)
+        return ((1-self.smoothing)*nll + self.smoothing/n*smooth_loss).mean()
+    
+if __name__ == "__main__":
+    m = EmotionNet(pretrained=False); m.eval()
+    x = torch.randn(2, 3, 224, 224)
+    print("Output:", m(x).shape)
+    print("Params:", f"{sum(p.numel() for p in m.parameters()):,}")
+    print("Pred", m.predict(x[:1]))
