@@ -91,3 +91,41 @@ class EmotionFolderDataset(Dataset):
     def __getitem__(self, idx):
         path, label = self.samples[idx]
         return self.transform(Image.open(path).convert("RGB")), label
+    
+
+def make_fer2013_loaders(csv_path: str, batch_size: int = 64,
+                         num_workers: int = 4, use_sampler: bool = True):
+    """Returns (train_loader, val_loader, test_loader)."""
+    train_ds = FER2013Dataset(csv_path, "train")
+    val_ds   = FER2013Dataset(csv_path, "val")
+    test_ds  = FER2013Dataset(csv_path, "test")
+ 
+    if use_sampler:
+        cw      = train_ds.class_weights()
+        sw      = torch.tensor([cw[l].item() for _, l in train_ds.data])
+        sampler = WeightedRandomSampler(sw, len(sw), replacement=True)
+        train_loader = DataLoader(train_ds, batch_size=batch_size,
+                                  sampler=sampler, num_workers=num_workers)
+    else:
+        train_loader = DataLoader(train_ds, batch_size=batch_size,
+                                  shuffle=True, num_workers=num_workers)
+ 
+    val_loader  = DataLoader(val_ds,  batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    return train_loader, val_loader, test_loader
+ 
+ 
+def make_folder_loaders(root: str, batch_size: int = 64,
+                        num_workers: int = 4, val_split: float = 0.15):
+    """Returns (train_loader, val_loader) for a custom image-folder dataset."""
+    full  = EmotionFolderDataset(root, "train")
+    n_val = int(len(full) * val_split)
+    n_tr  = len(full) - n_val
+    tr_ds, va_ds = torch.utils.data.random_split(
+        full, [n_tr, n_val], generator=torch.Generator().manual_seed(42)
+    )
+    va_ds.dataset.transform = build_transforms(False)
+    return (
+        DataLoader(tr_ds, batch_size=batch_size, shuffle=True,  num_workers=num_workers),
+        DataLoader(va_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers),
+    )
